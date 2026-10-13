@@ -1,0 +1,22 @@
+{
+  "id": "nunu-bridge",
+  "title": "NuNu Bridge",
+  "description": "Connects this browser to a bridge server running on the same machine so local tooling can read the live world. Writing is off unless enabled in settings.",
+  "version": "1.0.0",
+  "authors": [
+    {
+      "name": "Adam Meehan"
+    }
+  ],
+  "compatibility": {
+    "minimum": "12",
+    "verified": "12",
+    "maximum": "12"
+  },
+  "esmodules": [
+    "scripts/bridge.mjs"
+  ],
+  "manifest": "https://raw.githubusercontent.com/Mastermind1232/nunu-bridge/main/module.json",
+  "download": "https://github.com/Mastermind1232/nunu-bridge/releases/download/v1.0.0/module.zip",
+  "url": "https://github.com/Mastermind1232/nunu-bridge"
+}
