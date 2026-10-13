@@ -144,6 +144,55 @@ const OPS = Object.assign(Object.create(null), {
     return out;
   },
 
+  // Chat, including Virtual Agent texts, which are chat messages carrying a
+  // VirtualAgent flag rather than documents of their own.
+  messages: ({ limit = 50, threadId = null, agentOnly = false, search = null }) => {
+    let msgs = game.messages.contents;
+    if (agentOnly) msgs = msgs.filter((m) => m.flags?.VirtualAgent?.isAgentMessage);
+    if (threadId) msgs = msgs.filter((m) => m.flags?.VirtualAgent?.threadId === threadId);
+    if (search) {
+      const needle = String(search).toLowerCase();
+      msgs = msgs.filter((m) => String(m.content ?? "").toLowerCase().includes(needle));
+    }
+    return msgs.slice(-Math.max(1, limit)).map((m) => {
+      const va = m.flags?.VirtualAgent ?? {};
+      return {
+        id: m.id,
+        time: new Date(m.timestamp).toISOString(),
+        author: m.author?.name ?? m.user?.name ?? null,
+        speaker: m.speaker?.alias ?? null,
+        whisperedTo: m.whisper?.length ? m.whisper.map((id) => game.users.get(id)?.name ?? id) : null,
+        thread: va.threadId ?? null,
+        isAgentText: !!va.isAgentMessage,
+        content: m.content,
+      };
+    });
+  },
+
+  // Every Virtual Agent conversation, newest activity first.
+  threads: () => {
+    const seen = new Map();
+    for (const m of game.messages) {
+      const va = m.flags?.VirtualAgent;
+      if (!va?.isAgentMessage || !va.threadId) continue;
+      const t = seen.get(va.threadId) ?? { thread: va.threadId, count: 0, last: null, lastContent: null };
+      t.count++;
+      if (!t.last || m.timestamp > Date.parse(t.last)) {
+        t.last = new Date(m.timestamp).toISOString();
+        t.lastContent = String(m.content ?? "").slice(0, 120);
+      }
+      seen.set(va.threadId, t);
+    }
+    return [...seen.values()].sort((a, b) => (a.last < b.last ? 1 : -1));
+  },
+
+  // Per-user Virtual Agent flags: contacts, wallet, housing, unlocked apps.
+  userFlags: ({ user = null }) => {
+    const users = user ? [game.users.getName(user) ?? game.users.get(user)].filter(Boolean) : game.users.contents;
+    if (!users.length) throw new Error(`no user: ${user}`);
+    return users.map((u) => ({ name: u.name, id: u.id, isGM: u.isGM, character: u.character?.name ?? null, flags: u.flags ?? {} }));
+  },
+
   combat: () => {
     const c = game.combat;
     if (!c) return null;

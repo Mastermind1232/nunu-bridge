@@ -24,12 +24,15 @@ Chrome may ask once for permission to reach a local address. Allow it.
       -d '{"op":"counts"}'
 
 Reads: `ping`, `counts`, `list`, `search`, `get`, `actor`, `scene`, `packs`,
-`packIndex`, `packDoc`, `modules`, `settings`, `combat`.
+`packIndex`, `packDoc`, `modules`, `settings`, `combat`, `messages`, `threads`,
+`userFlags`.
 
     {"op":"list","args":{"collection":"scenes"}}
     {"op":"actor","args":{"name":"Doctor Crane"}}
     {"op":"search","args":{"collection":"items","q":"wings"}}
     {"op":"packIndex","args":{"pack":"cyberpunk-red-core.cyberware"}}
+    {"op":"messages","args":{"agentOnly":true,"limit":100}}
+    {"op":"settings","args":{"namespace":"VirtualAgent"}}
 
 ## Writing
 
