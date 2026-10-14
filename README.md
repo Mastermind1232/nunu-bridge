@@ -23,9 +23,9 @@ Chrome may ask once for permission to reach a local address. Allow it.
     curl -s -X POST "http://127.0.0.1:7777/ask?token=$TOKEN" \
       -d '{"op":"counts"}'
 
-Reads: `ping`, `counts`, `list`, `search`, `get`, `actor`, `scene`, `packs`,
-`packIndex`, `packDoc`, `modules`, `settings`, `combat`, `messages`, `threads`,
-`userFlags`.
+Reads: `ping`, `counts`, `list`, `search`, `get`, `actor`, `scene`, `walls`,
+`packs`, `packIndex`, `packDoc`, `modules`, `settings`, `combat`, `messages`,
+`threads`, `userFlags`.
 
     {"op":"list","args":{"collection":"scenes"}}
     {"op":"actor","args":{"name":"Doctor Crane"}}
@@ -44,6 +44,17 @@ operation becomes something much larger than a write: a User document can mint a
 GM account, a Macro and a Scene region behaviour both execute arbitrary
 JavaScript, and a Setting can rewrite the world's permissions. There is no
 arbitrary-code operation for the same reason.
+
+    {"op":"wallCreate","args":{"scene":"Ruby Rose Casino","walls":[{"c":[0,0,3840,0]}]}}
+    {"op":"wallDelete","args":{"scene":"Ruby Rose Casino","all":true}}
+
+**Walls** are the one embedded exception, and they have their own operations
+rather than an opening into Scene. A Scene is unwritable because of what it
+carries; a wall is two endpoints and a few flags saying what it blocks, with
+nothing executable in it. `wallCreate` takes only the fields a wall is made of,
+so nothing else on the object is copied across, document flags included, and it
+refuses more than 500 walls in one call. `wallDelete` takes ids, or `all` to
+clear the scene. Both need **Allow writes**.
 
 ## What it is guarded against
 

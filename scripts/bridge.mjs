@@ -3,8 +3,10 @@
 // them from the live world, and posts the answers back.
 //
 // Reads are always available. Writes are off by default and limited to document
-// types that cannot carry code: no User, no Macro, no Scene, no Setting. There
-// is deliberately no arbitrary-code operation.
+// types that cannot carry code: no User, no Macro, no Scene, no Setting. Walls
+// are the one embedded exception, written through their own operations, because
+// a wall is geometry and flags rather than anything executable. There is
+// deliberately no arbitrary-code operation.
 
 const MOD = "nunu-bridge";
 const POLL_TIMEOUT_MS = 40_000; // longer than the server's 25s hold
@@ -47,8 +49,17 @@ const collection = (name) => {
 // Scene (region behaviours run scripts), Setting (permissions).
 const WRITABLE = new Set(["Actor", "Item", "JournalEntry", "RollTable", "Folder"]);
 
-const assertWritable = (documentName) => {
+const MAX_WALLS = 500; // a perimeter is four walls; a hand-traced room is dozens
+const WALL_FIELDS = ["move", "sight", "sound", "light", "dir", "door", "ds", "threshold"];
+
+// Walls are written through their own operations rather than this allowlist, because
+// they are embedded in a Scene and have no world collection to be created into.
+const assertWriteOn = () => {
   if (!setting("allowWrite")) throw new Error("writing is off. Tick 'Allow writes' in module settings.");
+};
+
+const assertWritable = (documentName) => {
+  assertWriteOn();
   if (!WRITABLE.has(documentName)) throw new Error(`${documentName} cannot be written through the bridge. Allowed: ${[...WRITABLE].join(", ")}`);
   return getDocumentClass(documentName);
 };
@@ -221,6 +232,51 @@ const OPS = Object.assign(Object.create(null), {
     return docs.map(slim);
   },
 
+  /* Walls, and only walls. A Scene cannot be written through the bridge because a
+     Scene carries region behaviours, which run scripts. A Wall carries none: it is
+     two endpoints and a handful of flags saying what it blocks. So walls get their
+     own three operations rather than an opening into Scene. */
+
+  walls: ({ scene: name, id }) => {
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    return s.walls.map((w) => ({
+      id: w.id, c: w.c, move: w.move, sight: w.sight, sound: w.sound,
+      light: w.light, door: w.door, ds: w.ds, dir: w.dir,
+    }));
+  },
+
+  wallCreate: async ({ scene: name, id, walls }) => {
+    assertWriteOn();
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    const given = Array.isArray(walls) ? walls : [walls];
+    if (!given.length) throw new Error("no walls given.");
+    if (given.length > MAX_WALLS) throw new Error(`${given.length} walls in one call; the limit is ${MAX_WALLS}.`);
+    const list = given.map((w) => {
+      if (!Array.isArray(w?.c) || w.c.length !== 4 || w.c.some((n) => !Number.isFinite(n)))
+        throw new Error("every wall needs c: [x1, y1, x2, y2], four finite numbers.");
+      // Only the fields a wall is made of. Nothing else is copied across, flags
+      // included, so a wall written through here stays geometry and nothing more.
+      const out = { c: w.c.map(Number) };
+      for (const k of WALL_FIELDS) if (w[k] !== undefined) out[k] = w[k];
+      return out;
+    });
+    const made = await s.createEmbeddedDocuments("Wall", list);
+    return made.map((w) => ({ id: w.id, c: w.c }));
+  },
+
+  wallDelete: async ({ scene: name, id, ids, all = false }) => {
+    assertWriteOn();
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    if (all && ids !== undefined) throw new Error("pass ids or all, not both.");
+    const targets = all ? s.walls.map((w) => w.id) : (Array.isArray(ids) ? ids : ids === undefined ? [] : [ids]);
+    if (!targets.length) return { deleted: 0 };
+    await s.deleteEmbeddedDocuments("Wall", targets);
+    return { deleted: targets.length };
+  },
+
   delete: async ({ documentName, ids, pack = null }) => {
     const cls = assertWritable(documentName);
     const docs = await cls.deleteDocuments(Array.isArray(ids) ? ids : [ids], pack ? { pack } : {});
@@ -307,7 +363,7 @@ Hooks.once("init", () => {
   reg("token", { name: "Token", hint: "From ~/.config/nunu-bridge/token on this machine.", type: String, default: "", onChange: () => { if (setting("enabled")) { generation++; loop(); } } });
   reg("allowWrite", {
     name: "Allow writes",
-    hint: "Lets the bridge create, update and delete actors, items, journals, tables and folders. Leave off unless you are actively using it.",
+    hint: "Lets the bridge create, update and delete actors, items, journals, tables, folders and the walls on a scene. Leave off unless you are actively using it.",
     type: Boolean,
     default: false,
   });
