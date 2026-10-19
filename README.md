@@ -23,7 +23,7 @@ Chrome may ask once for permission to reach a local address. Allow it.
     curl -s -X POST "http://127.0.0.1:7777/ask?token=$TOKEN" \
       -d '{"op":"counts"}'
 
-Reads: `ping`, `counts`, `list`, `search`, `get`, `actor`, `scene`, `walls`,
+Reads: `ping`, `counts`, `list`, `search`, `get`, `actor`, `scene`, `walls`, `drawings`,
 `packs`, `packIndex`, `packDoc`, `modules`, `settings`, `combat`, `messages`,
 `threads`, `userFlags`.
 
@@ -48,13 +48,29 @@ arbitrary-code operation for the same reason.
     {"op":"wallCreate","args":{"scene":"Ruby Rose Casino","walls":[{"c":[0,0,3840,0]}]}}
     {"op":"wallDelete","args":{"scene":"Ruby Rose Casino","all":true}}
 
-**Walls** are the one embedded exception, and they have their own operations
-rather than an opening into Scene. A Scene is unwritable because of what it
-carries; a wall is two endpoints and a few flags saying what it blocks, with
-nothing executable in it. `wallCreate` takes only the fields a wall is made of,
-so nothing else on the object is copied across, document flags included, and it
-refuses more than 500 walls in one call. `wallDelete` takes ids, or `all` to
-clear the scene. Both need **Allow writes**.
+    {"op":"drawingCreate","args":{"scene":"Car Chase (City)","drawings":[{"x":1000,"y":1000,"shape":{"type":"r","width":480,"height":1360},"tag":"chase-track"}]}}
+    {"op":"drawingDelete","args":{"scene":"Car Chase (City)","tag":"chase-track"}}
+
+**Walls and drawings** are the two embedded exceptions, and they have their own
+operations rather than an opening into Scene. A Scene is unwritable because of
+what it carries; a wall is two endpoints and a few flags saying what it blocks,
+and a drawing is a shape, a colour and a string of text. Neither carries
+anything executable.
+
+`wallCreate` takes only the fields a wall is made of, so nothing else on the
+object is copied across, document flags included, and it refuses more than 500
+walls in one call. `wallDelete` takes ids, or `all` to clear the scene.
+
+`drawingCreate` works the same way. Shapes are limited to rectangles, ellipses
+and polylines, only the fields a drawing is made of are copied, and the limit is
+200 in one call. A caller cannot set arbitrary flags: passing `tag` writes a
+single string under this module's own flag, which is what `drawingDelete` then
+matches on, so a batch can be removed without touching anything drawn by hand.
+`drawingDelete` takes ids, a `tag`, or `all`.
+
+The `text` on a drawing is stored and rendered as text. It is never evaluated.
+
+All of these need **Allow writes**.
 
 ## What it is guarded against
 

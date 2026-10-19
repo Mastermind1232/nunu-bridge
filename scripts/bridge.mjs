@@ -52,6 +52,11 @@ const WRITABLE = new Set(["Actor", "Item", "JournalEntry", "RollTable", "Folder"
 const MAX_WALLS = 500; // a perimeter is four walls; a hand-traced room is dozens
 const WALL_FIELDS = ["move", "sight", "sound", "light", "dir", "door", "ds", "threshold"];
 
+const MAX_DRAWINGS = 200; // a zone track is eight; a hand-marked map is dozens
+const DRAWING_FIELDS = ["fillType", "fillColor", "fillAlpha", "strokeWidth", "strokeColor",
+  "strokeAlpha", "text", "fontFamily", "fontSize", "textColor", "textAlpha", "rotation",
+  "elevation", "sort", "locked", "hidden"];
+
 // Walls are written through their own operations rather than this allowlist, because
 // they are embedded in a Scene and have no world collection to be created into.
 const assertWriteOn = () => {
@@ -277,6 +282,58 @@ const OPS = Object.assign(Object.create(null), {
     return { deleted: targets.length };
   },
 
+  /* Drawings, and only drawings, on the same reasoning as walls. A Drawing is a shape,
+     a colour and a string of text. Unlike a Scene it carries no region behaviours, and
+     unlike a Macro it carries nothing that runs, so it is a narrower opening than the
+     wall operations already are. Shapes are limited to rectangles, ellipses and
+     polylines; `text` is stored and rendered as text and never evaluated. */
+
+  drawings: ({ scene: name, id }) => {
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    return s.drawings.map((d) => ({
+      id: d.id, x: d.x, y: d.y, shape: d.shape?.toObject?.() ?? d.shape,
+      text: d.text, locked: d.locked, hidden: d.hidden, flags: d.flags,
+    }));
+  },
+
+  drawingCreate: async ({ scene: name, id, drawings }) => {
+    assertWriteOn();
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    const given = Array.isArray(drawings) ? drawings : [drawings];
+    if (!given.length) throw new Error("no drawings given.");
+    if (given.length > MAX_DRAWINGS) throw new Error(`${given.length} drawings in one call; the limit is ${MAX_DRAWINGS}.`);
+    const list = given.map((d) => {
+      if (!Number.isFinite(d?.x) || !Number.isFinite(d?.y)) throw new Error("every drawing needs finite x and y.");
+      const type = d?.shape?.type ?? "r";
+      if (!["r", "e", "p"].includes(type)) throw new Error(`shape type "${type}": use r, e or p.`);
+      const shape = { type };
+      for (const k of ["width", "height", "radius", "points"]) if (d.shape?.[k] !== undefined) shape[k] = d.shape[k];
+      // Only the fields a drawing is made of, so nothing arbitrary rides along in flags.
+      const out = { x: Number(d.x), y: Number(d.y), shape };
+      for (const k of DRAWING_FIELDS) if (d[k] !== undefined) out[k] = d[k];
+      if (d.tag !== undefined) out.flags = { "nunu-bridge": { tag: String(d.tag) } };
+      return out;
+    });
+    const made = await s.createEmbeddedDocuments("Drawing", list);
+    return made.map((d) => ({ id: d.id, x: d.x, y: d.y }));
+  },
+
+  drawingDelete: async ({ scene: name, id, ids, tag, all = false }) => {
+    assertWriteOn();
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    const given = [all, tag !== undefined, ids !== undefined].filter(Boolean).length;
+    if (given > 1) throw new Error("pass ids, tag or all, and only one of them.");
+    const targets = all ? s.drawings.map((d) => d.id)
+      : tag !== undefined ? s.drawings.filter((d) => d.flags?.["nunu-bridge"]?.tag === String(tag)).map((d) => d.id)
+      : (Array.isArray(ids) ? ids : ids === undefined ? [] : [ids]);
+    if (!targets.length) return { deleted: 0 };
+    await s.deleteEmbeddedDocuments("Drawing", targets);
+    return { deleted: targets.length };
+  },
+
   delete: async ({ documentName, ids, pack = null }) => {
     const cls = assertWritable(documentName);
     const docs = await cls.deleteDocuments(Array.isArray(ids) ? ids : [ids], pack ? { pack } : {});
@@ -363,7 +420,7 @@ Hooks.once("init", () => {
   reg("token", { name: "Token", hint: "From ~/.config/nunu-bridge/token on this machine.", type: String, default: "", onChange: () => { if (setting("enabled")) { generation++; loop(); } } });
   reg("allowWrite", {
     name: "Allow writes",
-    hint: "Lets the bridge create, update and delete actors, items, journals, tables, folders and the walls on a scene. Leave off unless you are actively using it.",
+    hint: "Lets the bridge create, update and delete actors, items, journals, tables, folders, and the walls and drawings on a scene. Leave off unless you are actively using it.",
     type: Boolean,
     default: false,
   });
