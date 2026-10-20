@@ -52,6 +52,7 @@ const WRITABLE = new Set(["Actor", "Item", "JournalEntry", "RollTable", "Folder"
 const MAX_WALLS = 500; // a perimeter is four walls; a hand-traced room is dozens
 const WALL_FIELDS = ["move", "sight", "sound", "light", "dir", "door", "ds", "threshold"];
 
+const MAX_ACTOR_ITEMS = 100; // a full sheet's worth of gear, cyberware and programs
 const MAX_DRAWINGS = 200; // a zone track is eight; a hand-marked map is dozens
 const DRAWING_FIELDS = ["fillType", "fillColor", "fillAlpha", "strokeWidth", "strokeColor",
   "strokeAlpha", "text", "fontFamily", "fontSize", "textColor", "textAlpha", "rotation",
@@ -331,6 +332,51 @@ const OPS = Object.assign(Object.create(null), {
       : (Array.isArray(ids) ? ids : ids === undefined ? [] : [ids]);
     if (!targets.length) return { deleted: 0 };
     await s.deleteEmbeddedDocuments("Drawing", targets);
+    return { deleted: targets.length };
+  },
+
+  /* Items on an actor. `create` and `update` reach world collections, and an Item owned by
+     an actor lives in that actor instead, so a sheet cannot be built through them at all.
+     Item is already writable here, so this is the same document type under a different
+     parent rather than a wider permission. */
+
+  actorItemCreate: async ({ actor: name, id, items }) => {
+    assertWriteOn();
+    const a = id ? game.actors.get(id) : game.actors.getName(name);
+    if (!a) throw new Error(`no actor: ${name ?? id}`);
+    const given = Array.isArray(items) ? items : [items];
+    if (!given.length) throw new Error("no items given.");
+    if (given.length > MAX_ACTOR_ITEMS) throw new Error(`${given.length} items in one call; the limit is ${MAX_ACTOR_ITEMS}.`);
+    for (const it of given) if (!it?.name || !it?.type) throw new Error("every item needs a name and a type.");
+    const made = await a.createEmbeddedDocuments("Item", given);
+    return made.map((i) => ({ id: i.id, name: i.name, type: i.type }));
+  },
+
+  actorItemUpdate: async ({ actor: name, id, updates }) => {
+    assertWriteOn();
+    const a = id ? game.actors.get(id) : game.actors.getName(name);
+    if (!a) throw new Error(`no actor: ${name ?? id}`);
+    const given = Array.isArray(updates) ? updates : [updates];
+    // A name is accepted in place of an _id, because an actor's own skills are addressed
+    // by what they are called and their ids are not knowable from outside the sheet.
+    const list = given.map((u) => {
+      if (u?._id) return u;
+      const hit = a.items.find((i) => i.name === u?.name && (!u.type || i.type === u.type));
+      if (!hit) throw new Error(`no item named "${u?.name}" on ${a.name}.`);
+      const { name: _drop, type: _drop2, ...rest } = u;
+      return { _id: hit.id, ...rest };
+    });
+    const docs = await a.updateEmbeddedDocuments("Item", list);
+    return docs.map((i) => ({ id: i.id, name: i.name, type: i.type }));
+  },
+
+  actorItemDelete: async ({ actor: name, id, ids }) => {
+    assertWriteOn();
+    const a = id ? game.actors.get(id) : game.actors.getName(name);
+    if (!a) throw new Error(`no actor: ${name ?? id}`);
+    const targets = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+    if (!targets.length) return { deleted: 0 };
+    await a.deleteEmbeddedDocuments("Item", targets);
     return { deleted: targets.length };
   },
 

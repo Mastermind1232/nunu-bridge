@@ -70,6 +70,17 @@ matches on, so a batch can be removed without touching anything drawn by hand.
 
 The `text` on a drawing is stored and rendered as text. It is never evaluated.
 
+    {"op":"actorItemCreate","args":{"actor":"999","items":[{"name":"Netrunner","type":"role"}]}}
+    {"op":"actorItemUpdate","args":{"actor":"999","updates":[{"name":"Cybertech","system":{"level":3}}]}}
+
+**Items on an actor** have their own three operations because `create` and `update` reach
+world collections, and an Item owned by an actor lives in that actor instead, so a sheet
+could not be built through them at all. Item is already writable here, so this is the same
+document type under a different parent rather than a wider permission. `actorItemUpdate`
+accepts a name in place of an `_id`, since an actor's own skills are addressed by what they
+are called and their ids are not knowable from outside the sheet. The limit is 100 items in
+one call. All three need **Allow writes**.
+
 All of these need **Allow writes**.
 
 ## What it is guarded against
