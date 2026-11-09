@@ -51,11 +51,26 @@ arbitrary-code operation for the same reason.
     {"op":"drawingCreate","args":{"scene":"Car Chase (City)","drawings":[{"x":1000,"y":1000,"shape":{"type":"r","width":480,"height":1360},"tag":"chase-track"}]}}
     {"op":"drawingDelete","args":{"scene":"Car Chase (City)","tag":"chase-track"}}
 
+    {"op":"sceneCreate","args":{"config":{"name":"The Ring","width":3848,"height":2184,"grid":{"size":104,"distance":2,"units":"m"}}}}
+    {"op":"sceneConfig","args":{"scene":"The Ring","config":{"background":{"src":"NuNu/Maps/Ring/arena-4k.webp"},"grid":{"type":0}}}}
+
 **Walls and drawings** are the two embedded exceptions, and they have their own
 operations rather than an opening into Scene. A Scene is unwritable because of
 what it carries; a wall is two endpoints and a few flags saying what it blocks,
 and a drawing is a shape, a colour and a string of text. Neither carries
 anything executable.
+
+**`sceneCreate` and `sceneConfig`** reach a Scene's presentation fields on the
+same reasoning, and only those. The list is `name`, `width`, `height`, `padding`,
+`backgroundColor`, `foreground`, `foregroundElevation`, `tokenVision`, `weather`,
+`navigation`, `navName`, `navOrder`, `playlist`, `playlistSound`, `folder`,
+`sort`, and the groups `background`, `grid`, `initial` and `environment`. What a
+Scene actually carries is absent: regions, which can hold behaviours that run
+scripts, every other embedded collection, flags, ownership and `_id`. Passing one
+of those is an error rather than a field quietly dropped, because a write that
+silently did nothing would read as a write that worked. Changing `background.src`
+regenerates the navigation thumbnail; a video background has no still frame, and
+that is logged rather than failed.
 
 `wallCreate` takes only the fields a wall is made of, so nothing else on the
 object is copied across, document flags included, and it refuses more than 500

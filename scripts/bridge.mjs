@@ -3,10 +3,11 @@
 // them from the live world, and posts the answers back.
 //
 // Reads are always available. Writes are off by default and limited to document
-// types that cannot carry code: no User, no Macro, no Scene, no Setting. Walls
-// are the one embedded exception, written through their own operations, because
-// a wall is geometry and flags rather than anything executable. There is
-// deliberately no arbitrary-code operation.
+// types that cannot carry code: no User, no Macro, no Scene, no Setting. Walls,
+// drawings and a scene's own presentation fields are the exceptions, each written
+// through its own operation against a list of the fields it is made of, because
+// geometry, a shape with a caption, and the size and picture of a canvas carry
+// nothing executable. There is deliberately no arbitrary-code operation.
 
 const MOD = "nunu-bridge";
 const POLL_TIMEOUT_MS = 40_000; // longer than the server's 25s hold
@@ -46,7 +47,9 @@ const collection = (name) => {
 
 // Document types the bridge may write. Everything able to carry executable
 // content or grant access is absent on purpose: User (GM accounts), Macro and
-// Scene (region behaviours run scripts), Setting (permissions).
+// Scene (region behaviours run scripts), Setting (permissions). A Scene's
+// presentation fields are reachable through sceneCreate and sceneConfig, which
+// cannot touch a region; see SCENE_FIELDS.
 const WRITABLE = new Set(["Actor", "Item", "JournalEntry", "RollTable", "Folder"]);
 
 const MAX_WALLS = 500; // a perimeter is four walls; a hand-traced room is dozens
@@ -57,6 +60,44 @@ const MAX_DRAWINGS = 200; // a zone track is eight; a hand-marked map is dozens
 const DRAWING_FIELDS = ["fillType", "fillColor", "fillAlpha", "strokeWidth", "strokeColor",
   "strokeAlpha", "text", "fontFamily", "fontSize", "textColor", "textAlpha", "rotation",
   "elevation", "sort", "locked", "hidden"];
+
+// A Scene's presentation fields, and nothing else. Scene stays out of WRITABLE
+// because a region behaviour runs a script, so the opening here is the shape of a
+// scene rather than the document: how large it is, what picture is under it, how the
+// grid is read and how it is lit. Absent on purpose and refused rather than dropped:
+// regions and every other embedded collection, flags, ownership and _id. A caller
+// that passes one is told, because silently ignoring it would read as success.
+const SCENE_FIELDS = {
+  name: 1, width: 1, height: 1, padding: 1, backgroundColor: 1,
+  foreground: 1, foregroundElevation: 1, tokenVision: 1, weather: 1,
+  navigation: 1, navName: 1, navOrder: 1, playlist: 1, playlistSound: 1,
+  folder: 1, sort: 1,
+  background: { src: 1, offsetX: 1, offsetY: 1, scaleX: 1, scaleY: 1, rotation: 1, tint: 1, fit: 1, alphaThreshold: 1 },
+  grid: { type: 1, size: 1, style: 1, thickness: 1, color: 1, alpha: 1, distance: 1, units: 1 },
+  initial: { x: 1, y: 1, scale: 1 },
+  environment: { darknessLevel: 1, globalLight: { enabled: 1 } },
+};
+
+const sceneFields = (given, spec = SCENE_FIELDS, path = "") => {
+  if (given === null || typeof given !== "object" || Array.isArray(given))
+    throw new Error(`${path || "config"} must be an object.`);
+  const out = {};
+  for (const [k, v] of Object.entries(given)) {
+    const here = path ? `${path}.${k}` : k;
+    const rule = spec[k];
+    if (!rule) throw new Error(`"${here}" is not a scene field the bridge will write.`);
+    out[k] = rule === 1 ? v : sceneFields(v, rule, here);
+  }
+  return out;
+};
+
+// Changing the picture leaves the old thumbnail in the navigation bar, so it is
+// regenerated here. A video background has no still frame to draw, and that is not
+// a reason to fail a write that already went through.
+const rethumb = async (s) => {
+  try { await s.update({ thumb: (await s.createThumbnail()).thumb }); }
+  catch (e) { console.warn("nunu-bridge | thumbnail:", e.message); }
+};
 
 // Walls are written through their own operations rather than this allowlist, because
 // they are embedded in a Scene and have no world collection to be created into.
@@ -333,6 +374,36 @@ const OPS = Object.assign(Object.create(null), {
     if (!targets.length) return { deleted: 0 };
     await s.deleteEmbeddedDocuments("Drawing", targets);
     return { deleted: targets.length };
+  },
+
+  /* Scenes, through their presentation fields only. The document itself stays out of
+     WRITABLE for the reason given at SCENE_FIELDS: its regions can carry behaviours that
+     run scripts. Neither operation below can reach a region, an embedded collection, a
+     flag or ownership, so what they write is the size of the canvas, the picture under
+     it, how the grid is read and how it is lit. */
+
+  sceneCreate: async ({ config }) => {
+    assertWriteOn();
+    const data = sceneFields(config);
+    if (!data.name) throw new Error("a new scene needs a name.");
+    const made = await getDocumentClass("Scene").create(data);
+    if (data.background?.src) await rethumb(made);
+    return { id: made.id, name: made.name, width: made.width, height: made.height };
+  },
+
+  sceneConfig: async ({ scene: name, id, config }) => {
+    assertWriteOn();
+    const s = id ? game.scenes.get(id) : game.scenes.getName(name);
+    if (!s) throw new Error(`no scene: ${name ?? id}`);
+    const data = sceneFields(config);
+    if (!Object.keys(data).length) throw new Error("no scene fields given.");
+    await s.update(data);
+    if (data.background?.src !== undefined) await rethumb(s);
+    return {
+      id: s.id, name: s.name, width: s.width, height: s.height,
+      background: s.background?.src ?? null,
+      grid: { type: s.grid.type, size: s.grid.size, distance: s.grid.distance, units: s.grid.units },
+    };
   },
 
   /* Items on an actor. `create` and `update` reach world collections, and an Item owned by
